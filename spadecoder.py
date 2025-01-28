@@ -212,10 +212,11 @@ def run_adam_softmax_optimization(Bf,  X1, # X2,
 
     # apply softmax 
     V = torch.nn.functional.softmax(V, dim=0) # without dim=0, the outputs was all 1s
-    # res1 = torch.nn.functional.softmax(res1,dim=0)
+    res1 = torch.nn.functional.softmax(res1,dim=0)
+    cell_wts = res1 @ V
     # all_debug_vars = (cost_list,term1_list,l2_term_list,res1_term_list)
 
-    return V.detach().cpu().numpy() # ,res1.detach().cpu().numpy(), alpha.detach().cpu().numpy() # , all_debug_vars  # , Bvar.detach()
+    return V.detach().cpu().numpy(), cell_wts.detach().cpu().numpy() # ,res1.detach().cpu().numpy(), alpha.detach().cpu().numpy() # , all_debug_vars  # , Bvar.detach()
 
 
 
@@ -241,6 +242,9 @@ def get_adam_softmax_solution_perslice(#Palign,
     n_celltypes = len(all_ctypes)
     n_spots_st1 = expr_st1.shape[0]
     deconv_df = pd.DataFrame(np.zeros((n_celltypes,n_spots_st1)),index=all_ctypes,columns=range(n_spots_st1))
+
+    # ref cells/clusters x query spots/cells matrix
+    cell_wts_df = pd.DataFrame(np.zeros((Bscrna.shape[1],n_spots_st1)),index=range(Bscrna.shape[1]),columns=range(n_spots_st1))
 
     # V_init
     if adata_bulk_init is  None:
@@ -289,7 +293,7 @@ def get_adam_softmax_solution_perslice(#Palign,
             V_init = np.array(adata_bulk_init.loc[all_ctypes,str(spt_num)]).reshape(-1,1)
             V_init = torch.tensor(V_init,dtype=torch.float32,requires_grad=False).to(device)
 
-        deconv_op = run_adam_softmax_optimization(Bscrna, X1, #X2, 
+        deconv_op, cell_wts = run_adam_softmax_optimization(Bscrna, X1, #X2, 
                                                                                 # October2024 - fix kernel_wt[spt_num] -> kernel_wt[:,spt_num]
                                                                      kernel_wt[:,spt_num], #Palign[spt_num], 
                                                                      ct_identity,
@@ -310,7 +314,7 @@ def get_adam_softmax_solution_perslice(#Palign,
 
 
         deconv_df.loc[:,spt_num] = deconv_op.flatten() #.detach().cpu().numpy()
-
+        cell_wts_df.loc[:,spt_num] = cell_wts.flatten()
         # for debugging 
         # debug_vars_list_spots.append(debug_vars_list)
 
@@ -319,7 +323,7 @@ def get_adam_softmax_solution_perslice(#Palign,
         # alternatively initialize all randomly 
     # debug_vars = (V_all_spots, cost_list_spots, aug_lag_list_spots, term1_list_spots, term2_list_spots, l2_term_list_spots)
     
-    return deconv_df # ,res1, alpha, debug_vars_list_spots
+    return deconv_df, cell_wts_df # ,res1, alpha, debug_vars_list_spots
 
 
 def adam_softmax_solution_perslice_singlecellref_wrapper(adata_st1, #adata_st2, 
@@ -442,7 +446,7 @@ def adam_softmax_solution_perslice_singlecellref_wrapper(adata_st1, #adata_st2,
     ct_identity = torch.tensor(np.array(ct_identity), dtype=torch.float32,requires_grad=False).to(device)
     
 
-    deconv_st1 = get_adam_softmax_solution_perslice(kernel_wt1, Bscrna,ct_identity,
+    deconv_st1, cell_wts = get_adam_softmax_solution_perslice(kernel_wt1, Bscrna,ct_identity,
                                             all_ctypes, adata_st1.X, # adata_st2.X, 
                                          #deconv_st1_init,
                                     par_lambda=par_lambda, 
@@ -474,5 +478,5 @@ def adam_softmax_solution_perslice_singlecellref_wrapper(adata_st1, #adata_st2,
     #     deconv_st2 = (deconv_st2/deconv_st2.sum())
         
         
-    return deconv_st1 # , res1_1, alpha, debug_vars1
+    return deconv_st1, cell_wts # , res1_1, alpha, debug_vars1
 
