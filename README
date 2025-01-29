@@ -1,0 +1,35 @@
+To run the code: 
+
+deconv_st1_bulk, _  = spadecoder_slice_wrapper(adata_spa, # adata_spot_swap[key_name][entry3], 
+                                                                Bbulk,ct_identity_bulk, 
+                                                                min_wt=min_wt,
+                                                                spa_key1=spa_key1,
+                                                                renorm=renorm,recompute=recompute,
+                                                                bandwidth=bandwidth,
+                                                                par_lambda=par_lambda,
+                                                        self_wt1=self_wt1,
+                                max_iter_adam=max_iter_adam,# tol=1e-4,
+                                n_spatial_neigh=n_spatial_neigh,nn_only=nn_only,
+                                n_transcr_neigh=n_transcr_neigh,n_pcs=n_pcs,
+                                kernel_combo_method=kernel_combo_method,par_lr_adam=par_lr_adam,
+                                weight_transcr=weight_transcr,weight_spatial=weight_spatial,
+                                ct_props=ct_props,
+                                par_eta1=par_eta1)
+
+                        # SpaDecoder-SingleCell (initialized with SpaDecoder-Cluster)
+                        deconv_st1_sc, cell_wts_sc   = spadecoder_slice_wrapper(adata_spa, 
+                                                                adata_scrna.to_df().T,ct_identity_sc, 
+                                                                min_wt=min_wt,
+                                                                spa_key1=spa_key1,
+                                                                renorm=renorm,recompute=recompute,
+                                                                bandwidth=bandwidth,
+                                                                par_lambda=par_lambda,
+                                                        self_wt1=self_wt1,
+                                max_iter_adam=max_iter_adam,
+                                n_spatial_neigh=n_spatial_neigh,nn_only=nn_only,
+                                n_transcr_neigh=n_transcr_neigh,n_pcs=n_pcs,
+                                kernel_combo_method=kernel_combo_method,par_lr_adam=par_lr_adam,
+                                weight_transcr=weight_transcr,weight_spatial=weight_spatial,
+                                ct_props=None,
+                                par_eta1=par_eta1,
+                                adata_bulk_init=deconv_st1_bulk)

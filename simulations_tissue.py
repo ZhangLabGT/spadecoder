@@ -1,6 +1,6 @@
 # _tissue denotes simulating multiple slices via successive warping 
 
-from importing_modules import *
+from .importing_modules import *
 
 
 

@@ -43,9 +43,9 @@ import os
 import seaborn as sns
 import pickle
 
-import time
-timestr = time.strftime("%Y%m%d-%H%M%S") # for timestamping output files 
-# print timestr
+# import time
+# timestr = time.strftime("%Y%m%d-%H%M%S") # for timestamping output files 
+# # print timestr
 
 
 
@@ -55,12 +55,12 @@ warnings.simplefilter("ignore", UserWarning)
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Wedge, Rectangle
-plt.rcParams['figure.figsize']=(8,8) #rescale figures
-# sc.settings.verbosity = 3
-# sc.logging.print_versions()
-sc.set_figure_params(scanpy=True, dpi_save=400,dpi=150)
-plt.rcParams["font.family"] = "Arial"
-plt.rcParams['pdf.fonttype'] = 42
+# plt.rcParams['figure.figsize']=(8,8) #rescale figures
+# # sc.settings.verbosity = 3
+# # sc.logging.print_versions()
+# sc.set_figure_params(scanpy=True, dpi_save=400,dpi=150)
+# plt.rcParams["font.family"] = "Arial"
+# plt.rcParams['pdf.fonttype'] = 42
 
 import torch
 import torch.nn.functional as F
