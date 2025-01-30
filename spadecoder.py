@@ -88,13 +88,13 @@ def run_adam_softmax_optimization(Bf,  X1, # X2,
     :return: Optimized V and bias
     """
 
-    V = V_init.detach().clone().requires_grad_(True).to(device) 
-    res1 = res1_init.detach().clone().requires_grad_(True).to(device) 
+    V = V_init.clone().requires_grad_(True).to(device) 
+    res1 = res1_init.clone().requires_grad_(True).to(device) 
     alpha = torch.tensor([1.0], requires_grad=True, device=device)
-    optimizer = torch.optim.Adam([V, res1, alpha], lr=par_lr_adam)
-    # cost_list = []
 
-    prev_cost = float("inf")
+    optimizer = torch.optim.Adam([V, res1, alpha], lr=par_lr_adam)
+    prev_cost = torch.tensor(float("inf"), device=device)
+    # cost_list = []
 
     for iteration in range(max_iter_adam):
         optimizer.zero_grad()
@@ -104,17 +104,17 @@ def run_adam_softmax_optimization(Bf,  X1, # X2,
         optimizer.step()
 
         # Stopping criterion
-        cost_float = cost.item()
-        if abs(prev_cost - cost_float) < 1e-4:
+        # cost_float = cost.item()
+        if torch.abs(prev_cost - cost)/torch.abs(cost) < 1e-5:
             break
-        prev_cost = cost_float
+        prev_cost = cost.clone()
  
     # apply softmax 
     V = torch.nn.functional.softmax(V, dim=0) # without dim=0, the outputs was all 1s
     res1 = torch.nn.functional.softmax(res1,dim=0)
     cell_wts = res1 @ V
     
-    return V.detach().cpu().numpy(), cell_wts.detach().cpu().numpy() # ,res1.detach().cpu().numpy(), alpha.detach().cpu().numpy() # , all_debug_vars  # , Bvar.detach()
+    return V.detach().cpu().numpy(), cell_wts.detach().cpu().numpy() 
 
 
 def get_adam_softmax_solution_perslice(kernel_wt, Bscrna, ct_identity,
