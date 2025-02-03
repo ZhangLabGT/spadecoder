@@ -22,7 +22,7 @@ def compute_cost_function(V, res1, alpha, X1,
     """
     Compute the cost function.
     
-    :param B: Gene expression matrix (G x K)
+    :param B: Gene expression matrix (G x K) (checked) 
     :param X1: Gene-by-spot matrix for sample S1 (G x N1)
     :param X2: Gene-by-spot matrix for sample S2 (G x N2)
     :param V1: Cell-type proportion matrix for slice 1 (K,)
@@ -35,7 +35,7 @@ def compute_cost_function(V, res1, alpha, X1,
     :param adj_wt_: tuning the weight of adjacent slice term
     :return: Computed cost
     """
-    
+    # print(V.shape, res1.shape,  X1.shape,Bf.shape, w.shape, ct_identity.shape)
     res1_softmax = torch.nn.functional.softmax(res1,dim=0)
     # why are we applying softmax to columns of res 1 ? -> ct_identity is column normalized i.e. each col sums to 1 so it's like "averaging"
     # hence since we're keeping res1 close to ct_identity, we need to column normalize this too 
@@ -105,7 +105,7 @@ def run_adam_softmax_optimization(Bf,  X1, # X2,
 
         # Stopping criterion
         # cost_float = cost.item()
-        if torch.abs(prev_cost - cost)/torch.abs(cost) < 1e-5:
+        if torch.abs(prev_cost - cost) < 1e-4:
             break
         prev_cost = cost.clone()
  
@@ -187,9 +187,7 @@ def spadecoder_slice_wrapper(adata_st1, Bsc, ct_identity,
                   par_eta1=10.0,
                   max_iter_adam=500,
                   n_spatial_neigh=15,nn_only=True,
-                  n_transcr_neigh=15,n_pcs=20,
-                  kernel_combo_method='M1',
-                  weight_transcr=0.0,weight_spatial=1.0,
+                  weight_spatial=1.0,
                   self_wt1=1.0,
                   ct_props=None,
                   par_lr_adam=0.01, adata_bulk_init=None):
@@ -215,12 +213,10 @@ def spadecoder_slice_wrapper(adata_st1, Bsc, ct_identity,
                 obs =  sc.get.obs_df(adata_st1,keys=list(adata_st1.obs.columns))
                 obs[entry] = 0.0
                 adata_st1.obs = obs
-
-    kernel_wt1 = combine_transcr_spatial_kernel(adata_st1,spa_key1,min_wt=min_wt,bandwidth=bandwidth,
+    
+    kernel_wt1 = get_gauss_kernel_wt(adata_st1,spa_key1,min_wt=min_wt,bandwidth=bandwidth,
                                                 recompute=recompute,n_spatial_neigh=n_spatial_neigh,
-                                                nn_only=nn_only,n_transcr_neigh=n_transcr_neigh,n_pcs=n_pcs,
-                                                kernel_combo_method=kernel_combo_method,weight_transcr=weight_transcr,
-                                                weight_spatial=weight_spatial) 
+                                                nn_only=nn_only,weight_spatial=weight_spatial) 
 
     Bscrna = torch.tensor(np.array(Bsc), dtype=torch.float32,requires_grad=False).to(device)
     
