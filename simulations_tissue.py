@@ -170,7 +170,7 @@ def cell_swap_for_allsims_tissue(adata_sc, adata_spot,
                                     swap_seed=1,
                                     spa_celltype_key='Types',
                                     wts=None):
-
+    swap_seed = swap_seed + 19
     rng = np.random.default_rng(seed=swap_seed)
     spot_info = adata_sc.obs[spot_key]
     cells_in_spots = adata_sc.obs[spot_key].value_counts()
@@ -214,7 +214,7 @@ def cell_swap_for_allsims_tissue(adata_sc, adata_spot,
     
     
     while spot_id_idx <= (len(spot_ids) -2):
-        
+        # take pairs of spots (0,1), (2,3), (4,5) etc. and swap cells between them
         num_cells_spot_1 = cells_in_spots[spot_ids[spot_id_idx]]
         num_cells_spot_2 = cells_in_spots[spot_ids[spot_id_idx+1]]
 
@@ -230,10 +230,13 @@ def cell_swap_for_allsims_tissue(adata_sc, adata_spot,
         swap_1 = rng.integers(low=0, high=num_cells_spot_1, size=num_swaps)   # random.sample(range(0,num_cells_spot_1), num_swaps)
         swap_2 = rng.integers(low=0, high=num_cells_spot_2, size=num_swaps) # random.sample(range(0,num_cells_spot_2), num_swaps)
         
+        # print(spot_id_idx, swap_1, swap_2)
+        
         # update spot_numbers in spot_number_swapped
         swap_cell_names_1 = adata_sc[adata_sc.obs[spot_key] == spot_id_idx].obs.index[swap_1]
         swap_cell_names_2 = adata_sc[adata_sc.obs[spot_key] == spot_id_idx+1].obs.index[swap_2]
-        
+        # print(spot_id_idx, swap_cell_names_1, swap_cell_names_2)
+
         adata_sc.obs.loc[swap_cell_names_1,spot_key+ '_swapped'] = spot_ids[spot_id_idx+1]
         adata_sc.obs.loc[swap_cell_names_2,spot_key+'_swapped'] = spot_ids[spot_id_idx]
         
@@ -406,8 +409,8 @@ def sim_multiple_slices_allsims_tissue_forbatch(adata_st,types_of_spots=['linear
 
     # parameters for seeds 
     seed_par = [23]
-    for sim_index in range(int(num_simulations)):
-        for entry in types_of_spots:
+    for sim_index in range(int(num_simulations)): # 0,1,2
+        for entry in types_of_spots: # linear, polar, gaussian
             types_of_sims_curr = entry + '_' + str(sim_index)
             adata_orig[types_of_sims_curr] = {}
             # adata_spot[types_of_sims_curr] = {}
@@ -428,24 +431,16 @@ def sim_multiple_slices_allsims_tissue_forbatch(adata_st,types_of_spots=['linear
                                                                                                                             spatial_key=spatial_base_key,
                                                                                                                             spot_key=spot_base_key)
 
-    seed_par=seed_par[0:-1]
+    seed_par=seed_par[0:-1] # there is 1 entry per simulated slice 
     # print(len(seed_par))
 
     # print(types_of_sims)
     
     
-    for slice_idx in adata_st.keys():
+    for slice_idx in adata_st.keys(): # real slices 
         cnt = 0    
 
-        for entry0 in range(num_tissueslices):
-            
-            # with every successive slice, I move the original to swapped and delete swapped so we dont need this 
-            # if entry0 != 0:
-            #     spatial_key = spatial_base_key + '_warped' # for the first one, it isnt warped, after it is 
-            #     spot_key = spot_base_key + '_swapped'
-            # else:
-            #     spatial_key = spatial_base_key #+ '_warped' # for the first one, it isnt warped, after it is 
-            #     spot_key = spot_base_key #+ '_swapped'
+        for entry0 in range(num_tissueslices): # simulated slices 
 
             for entry in types_of_sims:
                 # print(entry, slice_idx, entry0)
@@ -457,7 +452,7 @@ def sim_multiple_slices_allsims_tissue_forbatch(adata_st,types_of_spots=['linear
                         spatial_key = spatial_base_key, # 
                         linear_slope_variance=linear_slope_variance, # 
                         linear_intercept_variance=linear_intercept_variance, # 
-                        linear_warp_slope_seed=seed_par[cnt],  # vary  # 
+                        linear_warp_slope_seed=seed_par[cnt],  # vary  # this parameter will be the same for each real slice which is fine
                         linear_warp_int_seed=seed_par[cnt], # set same as linear_warp_slope_seed # 
                         linear_noise_seed=linear_noise_seed, # 
                         noise_mean=noise_mean, # 
@@ -503,12 +498,12 @@ def sim_multiple_slices_allsims_tissue_forbatch(adata_st,types_of_spots=['linear
                 # print(spot_key)
                 # print(spa_celltype_key)
 
-                adata_orig[entry][entry0+1][slice_idx], adata_spot_swap[entry][entry0+1][slice_idx] = cell_swap_for_allsims_tissue(adata_orig[entry][entry0][slice_idx], 
+                adata_orig[entry][entry0+1][slice_idx], adata_spot_swap[entry][entry0+1][slice_idx] = cell_swap_for_allsims_tissue(adata_orig[entry][entry0][slice_idx], # this is scRNA
                                                                         adata_spot_swap[entry][entry0][slice_idx],
                                                                         numcells_to_swap=numcells_to_swap, 
                                                                         spot_key = spot_base_key, # 'spot_number' for the 1st, spot_key_warped after
                                                                         spa_celltype_key=spa_celltype_key,
-                                                                        swap_seed=swap_seed,
+                                                                        swap_seed=seed_par[cnt],
                                                                         wts=wts) 
 
                 # doing this so the next slice in the sequence will be correctly updated 
@@ -519,15 +514,6 @@ def sim_multiple_slices_allsims_tissue_forbatch(adata_st,types_of_spots=['linear
 
                 cnt = cnt + 1
 
-    
-    # for entry2 in types_of_sims:
-    #     for entry in range(num_tissueslices+1):
-    #         if (len(adata_spot_swap[entry2][entry]) == 0):
-    #               del adata_spot_swap[entry2][entry]
-    #     if (len(adata_spot_swap[entry2]) == 0):
-    #         del adata_spot_swap[entry2]
-
-    #if (len(adata_spot_swap.keys()) > 0):
     with open(save_sim_slices, 'wb') as handle:
         pickle.dump(adata_spot_swap, handle, protocol=pickle.HIGHEST_PROTOCOL)
 

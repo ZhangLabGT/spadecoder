@@ -244,8 +244,9 @@ def spadecoder_slice_wrapper_ms(adata_ip, # this is a list
                                 adj_wt=None,
                                 ct_props=None,
                                 par_lr_adam=0.01, 
-                                adata_bulk_init=None):
-    
+                                adata_bulk_init=None, gt_align=True):
+
+    # gt_align: If true, ground truth alignment is used. If False, alignment is computed using moscot
     # ensure same genes in ST, scRNA
     # Bsc: gene X cell matrix from reference 
     # ct_identity: cell X cell-type binary matrix 
@@ -282,6 +283,7 @@ def spadecoder_slice_wrapper_ms(adata_ip, # this is a list
                                                         nn_only=nn_only,weight_spatial=weight_spatial) 
         else:
             kernel_wt1 = np.zeros((adata_ip[entry].shape[0],adata_ip[curr_slice_idx].shape[0]))
+            # print(adata_ip[entry].shape[0],adata_ip[curr_slice_idx].shape[0])
             np.fill_diagonal(kernel_wt1,0.75)
         
         # print(entry, kernel_wt1)
