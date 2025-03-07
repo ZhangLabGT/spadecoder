@@ -4,9 +4,12 @@ from .processing_for_model import *
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 ####################   use other tools to align adjacent slices #############
-def solve_alignment(adata_sp):
+def solve_alignment(adata_sp, reference=None, policy='star'):
+    # star aligns to reference
+    # sequential aligns to the next 
+
     ap = AlignmentProblem(adata=adata_sp)
-    ap = ap.prepare(batch_key="batch", policy="sequential")
+    ap = ap.prepare(batch_key="batch", policy=policy,reference=reference)
     ap = ap.solve()
     
     return ap
@@ -14,191 +17,212 @@ def solve_alignment(adata_sp):
 
 
 # optional to check convergence
-def compute_cost_function(V, res1, alpha, X1, 
+
+
+def compute_cost_function_ms(V, res1, alpha, tissue_expr, # X1 is a list of slices 
                           # X2, 
-                          Bf, w, # P, 
+                          # curr_slice_idx, 
+                          Bf, tissue_kernel, # P, 
                             ct_identity, lambda_,
-                           eta1_, self_wt_=1.0):
+                           eta1_,  adj_wt_):
     """
-    Compute the cost function.
-    
-    :param B: Gene expression matrix (G x K) (checked) 
-    :param X1: Gene-by-spot matrix for sample S1 (G x N1)
-    :param X2: Gene-by-spot matrix for sample S2 (G x N2)
-    :param V1: Cell-type proportion matrix for slice 1 (K,)
-    
-    :param w: Weights for X1 term (N1,)
-    :param P: Weights for X2 term (N2,)
-    :param lambda_: Regularization parameter
-    :param alpha_: Elastic net tuning parameter (Between L1 and L2)
-    :param self_wt_: tuning the weight of current slice term
-    :param adj_wt_: tuning the weight of adjacent slice term
-    :return: Computed cost
     """
-    # print(V.shape, res1.shape,  X1.shape,Bf.shape, w.shape, ct_identity.shape)
+    
     res1_softmax = torch.nn.functional.softmax(res1,dim=0)
+    # print("res1_softmax")
+    # print(res1_softmax.shape)
+    # print("cells x ctypes x spots")
     # why are we applying softmax to columns of res 1 ? -> ct_identity is column normalized i.e. each col sums to 1 so it's like "averaging"
     # hence since we're keeping res1 close to ct_identity, we need to column normalize this too 
-    bv_prod_X1 =  Bf @  res1_softmax @  torch.nn.functional.softmax(V, dim=0) #bv_prod.expand(-1, X1.shape[1])
     
-    batch_id = (w != 0).squeeze()
-    X1_batch = X1[:, batch_id]
-    
-    # G x N 
-    bv_prod_X1 = bv_prod_X1.expand(-1, X1_batch.shape[1])
+    ####################### tensorize bv_prod_X1_main #################################
+    # Bf = genes x cells; res1_softmax = cells x ctypes x spots; V = ctypes x spots 
+    # print("Bf")
+    # print(Bf.shape)
+    # print(" genes x cells")
 
-    # Compute the first term: sum of weighted squared L2 norms for X1
-    term1 = self_wt_ *  0.5 * (w[batch_id] * (X1_batch -  torch.clamp(alpha, min = 1e-4) * bv_prod_X1).pow(2).sum(0)).mean()
-    
-    # Compute the third term: L2 regularization term
-    l2_term = 0.5 *  lambda_ * (V.pow(2).sum())
+    # print("V")
+    # print(V.shape)
+    # print(" ctypes x spots")
+
+    tmp_prod1 = torch.matmul(Bf, res1_softmax.view(res1_softmax.shape[0], -1))  # torch.einsum('gc,cts->gts', Bf, res1_softmax)
+    # print("tmp_prod1")
+    # print(tmp_prod1.shape)
+    # print("genes, ctypes x spots")
+
+    tmp_prod1 = tmp_prod1.view(Bf.shape[0], res1_softmax.shape[1], res1_softmax.shape[2]) # genes x   ctypes x spots 
+    # print("tmp_prod1")
+    # print(tmp_prod1.shape)
+    # print("genes x ctypes x spots")
+    # # bv_prod_X1_main = torch.einsum('gts,ts->gs', tmp_prod1, torch.nn.functional.softmax(V, dim=0)) 
+    # tmp_prod1 is genes x ctypes x spots; V is ctypes x spots 
+    bv_prod_X1_main = (tmp_prod1*torch.nn.functional.softmax(V, dim=0).unsqueeze(0)).sum(dim=1) # genes x ctypes x spots * 1 x ctypes x spots = genes x ctypes  x spots -> genes x spots
+    # print("bv_prod_X1_main")
+    # print(bv_prod_X1_main.shape)
+    # print("genes x spots")
+
+    # exapnd for use in subtraction
+    bv_prod_X1_main = bv_prod_X1_main.unsqueeze(0).unsqueeze(2)
+    bv_prod_X1_main = bv_prod_X1_main.expand(tissue_expr.shape[0], -1, tissue_expr.shape[2], -1)
+    kernel_tmp = tissue_kernel.unsqueeze(1).expand(-1, tissue_expr.shape[1], -1, -1)
+    bv_prod_X1_main = bv_prod_X1_main * ((kernel_tmp > 0.0).float()) # multiply by binarized kernel
+    # print("bv_prod_X1_main")
+    # print(bv_prod_X1_main.shape)
+    # print("slices x genes x numadpspots x numspots ")
+    # # bv_prod_X1_main: this is slices x genes x numadpspots x numspots 
+    ######################### tensorize bv_prod_X1_main ends ###########################
+
+
+    # adj_wt_ is slices x 1 
+    # alpha is 1 x 1 x 1 x numspots 
+    # term 1 should be of length "spots"
+    term1 = 0.5* (adj_wt_ * (tissue_kernel * ((tissue_expr - torch.clamp(alpha, min = 1e-4) * bv_prod_X1_main).pow(2).sum(dim=1))).sum(dim=1)).sum(dim=0)
+    # print("term1")
+    # print(term1.shape)
+    # print("numspots")
+    # V = ctypes x spots 
+    # V should be of length spots 
+    l2_term = 0.5 *  lambda_ * (V.pow(2).sum(dim=0))
+    # print("l2_term")
+    # print(l2_term.shape)
+    # print("numspots")
 
     # res1_term -> 0
-    res1_term = 0.5 * eta1_ * ((res1_softmax-ct_identity).pow(2).mean()) 
+    # res1_softmax = cells x ctypes x spots
+    # ct_identity = cells x ctypes x spots
+    res1_term = 0.5 * eta1_ * ((res1_softmax-ct_identity).pow(2).mean(dim=0).mean(dim=0)) 
+    # print("res1_term")
+    # print(res1_term.shape)
+    # print("numspots")
 
     # Total cost
     cost = term1 +  l2_term + res1_term 
+    # print("cost")
+    # print(cost.sum())
+    # print("1 value")
 
-    return cost # , term1,  l2_term, res1_term # term2,  , ,  res2_term
+    return cost.mean() # , term1_net,  term1_list, l2_term, res1_term # term2,  , ,  res2_term
 
 
-def run_adam_softmax_optimization(Bf,  X1, # X2,  
-                                  w, #P, 
-                                  ct_identity, res1_init, # res2_init,
+
+def run_adam_softmax_optimization_ms(Bf,  X1_list, # curr_slice_idx, # X2,  
+                                  w_list, #P, 
+                                  ct_identity, adj_wt_, res1_init, # ,alpha_init, # res2_init,
                                   V_init,
                        lambda_, eta1_, 
-                        self_wt_=1.0,#adj_wt_=1.0, 
                         max_iter_adam=500, 
                         par_lr_adam=1e-2 ):
-    """
-    Adam optimization without ADMM.
+
+    numspots = w_list[0].shape[1]
+    numgenes = X1_list[0].shape[0]
+
+    V = V_init.clone().requires_grad_(True).to(device) # shape is ctypes x spots 
+    res1 = res1_init.clone().requires_grad_(True).to(device)  # shape should be cells x celltypes x spots  
+    # res1 = res1.unsqueeze(2).expand(-1, -1, numspots) # shape should be cells x celltypes x spots 
+    # define alpha to be per spot 
+    alpha = torch.ones(1, 1, 1, numspots, requires_grad=True, device=device) # shape is 1 x 1 x 1 x spots 
     
-    :param B: Gene expression matrix (G x K)
-    :param X1: Gene-by-spot matrix for sample S1 (G x N1)
-    :param X2: Gene-by-spot matrix for sample S2 (G x N2)
-    :param V_init: Initial cell-type proportion matrix (K,)
-    :param w: Weights for X1 term (N1,)
-    :param P: Weights for X2 term (N2,)
-    :param lambda_: Regularization parameter
-    :param alpha_: Elastic net tuning parameter (Between L1 and L2)
-    :param max_iter: Maximum number of iterations
-    :param printiter: Print interval for logging
-    :param par_lr: Learning rate for Adam optimizer
-    :param dist_measure: Distance measure ('L2' or 'cosine')
-    :return: Optimized V and bias
-    """
-
-    V = V_init.clone().requires_grad_(True).to(device) 
-    res1 = res1_init.clone().requires_grad_(True).to(device) 
-    alpha = torch.tensor([1.0], requires_grad=True, device=device)
-
+    # I want each spot to function as a separate sample 
     optimizer = torch.optim.Adam([V, res1, alpha], lr=par_lr_adam)
     prev_cost = torch.tensor(float("inf"), device=device)
-    # cost_list = []
+
+    output_slices = []
+    kernel_slices = []
+    # kernel_binarized = []
+
+    ######################## tensorize #############################
+    for slice_num in range(len(X1_list)):
+        max_neigh = (w_list[slice_num] != 0).sum(axis=0).max().item() # max size for padding
+        # define output tensors 
+        output_tensor = torch.full((numgenes, max_neigh, numspots), 0.0, dtype=X1_list[slice_num].dtype, device=X1_list[slice_num].device)
+        kernel_tensor = torch.full((max_neigh, numspots), 0.0, dtype=w_list[slice_num].dtype, device=w_list[slice_num].device)
+        # kernel_binarized = torch.full((max_neigh, numspots), 0.0, dtype=w_list[slice_num].dtype, device=w_list[slice_num].device)
+    
+        for col_idx in range(numspots):
+            batch_id = (w_list[slice_num][:,col_idx] != 0).squeeze() # need the : so col_idx denotes columns ( tested this )
+            extracted_kernel = w_list[slice_num][batch_id,col_idx]
+            # extracted_kernelbin =  (extracted_kernel > 0.0).float() * 1
+            extracted_values = X1_list[slice_num][:, batch_id]
+            # Store extracted values in the output tensor
+            output_tensor[:, :extracted_values.shape[1], col_idx] = extracted_values
+            kernel_tensor[:extracted_kernel.shape[0], col_idx] = extracted_kernel
+            # kernel_binarized[:extracted_kernelbin.shape[0], col_idx] = extracted_kernelbin
+
+        output_slices.append(output_tensor)
+        kernel_slices.append(kernel_tensor)
+        # kernel_binarized.append(kernel_binarized)
+
+    # now convert to padded 4D slice tensor
+    max_adjspots = max(mat.shape[1] for mat in output_slices) 
+    tissue_expr = torch.full((len(output_slices), numgenes, max_adjspots, numspots), fill_value=0.0, dtype=output_slices[0].dtype,device=output_slices[0].device)
+    tissue_kernel = torch.full((len(kernel_slices), max_adjspots, numspots), fill_value=0.0, dtype=kernel_slices[0].dtype,device=kernel_slices[0].device)
+    # tissue_kernel_bin = 
+
+    for i, mat in enumerate(output_slices):
+        ngenes_curr, nadj_spots, ncurrspots = mat.shape
+        tissue_expr[i, :, :nadj_spots, :] = mat
+        tissue_kernel[i, :nadj_spots, :] = kernel_slices[i]
+    ######################## tensorization ends ####################
+       
 
     for iteration in range(max_iter_adam):
         optimizer.zero_grad()
-        cost  = compute_cost_function(V, res1,alpha, X1, Bf, w, ct_identity, lambda_,eta1_, self_wt_=self_wt_)
-        # cost_list.append(cost)
+        
+        ############### cost function call ##################
+        cost  = compute_cost_function_ms(V, res1, alpha, tissue_expr,  Bf, tissue_kernel, ct_identity, lambda_,eta1_,
+                                                                        adj_wt_=adj_wt_)
+        #################################################                                                                
         cost.backward()
         optimizer.step()
 
         # Stopping criterion
-        # cost_float = cost.item()
-        if torch.abs(prev_cost - cost) < 1e-4:
+        if ((iteration >= 2) and (torch.abs(prev_cost - cost) < 1e-4)):
             break
-        prev_cost = cost.clone()
+        prev_cost = cost.detach().clone()
  
     # apply softmax 
     V = torch.nn.functional.softmax(V, dim=0) # without dim=0, the outputs was all 1s
-    res1 = torch.nn.functional.softmax(res1,dim=0)
-    cell_wts = res1 @ V
+    # res1 = torch.nn.functional.softmax(res1,dim=0)
+    # cell_wts = res1 @ V
     
-    return V.detach().cpu().numpy(), cell_wts.detach().cpu().numpy() 
+    return V.detach().cpu().numpy() # , cell_wts.detach().cpu().numpy() #, res1.detach().cpu().numpy(), alpha.detach().cpu().numpy(), all_debug_vars 
 
 
-def get_adam_softmax_solution_perslice(kernel_wt, Bscrna, ct_identity,
-                                    all_ctypes, expr_st1, 
-                                    par_lambda=1.0, 
-                                    par_eta1=5.0, 
-                                    max_iter_adam=500, 
-                      self_wt_=1.0,#adj_wt_=1.0,
-                      ct_props=None,
-                      par_lr_adam=1e-2,adata_bulk_init = None):
-    
-    n_celltypes = len(all_ctypes)
-    n_spots_st1 = expr_st1.shape[0]
-    deconv_df = pd.DataFrame(np.zeros((n_celltypes,n_spots_st1)),index=all_ctypes,columns=range(n_spots_st1))
 
-    # ref cells/clusters x query spots/cells matrix
-    cell_wts_df = pd.DataFrame(np.zeros((Bscrna.shape[1],n_spots_st1)),index=range(Bscrna.shape[1]),columns=range(n_spots_st1))
+def spadecoder_slice_wrapper_ms(adata_ip, # this is a list 
+                                curr_slice_idx, 
+                                Bsc, ct_identity,
+                                spa_key1='spatial',
+                                min_wt=0.0001,
+                                renorm=True,
+                                bandwidth=0.01,
+                                recompute=True,par_lambda=0.001, 
+                                par_eta1=10.0,
+                                max_iter_adam=500,
+                                n_spatial_neigh=15,nn_only=True,
+                                weight_spatial=1.0,
+                                adj_wt=None,
+                                ct_props=None,
+                                par_lr_adam=0.01,
+                                adata_bulk_init=None, 
+                                kernel3d_bw_slices=20,
+                                # res1_init = None, alpha_init = None,
+                                gt_align=True):
 
-    # V_init
-    if adata_bulk_init is  None:
-        if ct_props is None:
-                V_init = np.random.rand(n_celltypes)
-                V_init = V_init/V_init.sum()
-        else:
-                V_init = ct_props[all_ctypes].values # make sure same order as Bscrna
-
-        # V_init = np.array(V_init).reshape(-1,1)
-        V_init = torch.tensor(V_init,  dtype=torch.float32,requires_grad=False).reshape(-1,1).to(device)
-    else:
-        adata_bulk_init = adata_bulk_init.loc[all_ctypes,:].copy()
-
-    X1 = torch.tensor(expr_st1.T, dtype=torch.float32,requires_grad=False).to(device)  # Ensure X1 is a PyTorch tensor
-    
-    kernel_wt = torch.tensor(kernel_wt, dtype=torch.float32,requires_grad=False).to(device)  # Ensure w is a PyTorch tensor
-  
-    # initlaize same as ct-identity so close to softmax is close to ctype 
-    res1_init = torch.log(ct_identity) # this gets to infiniy but with the softmax, it's fine
-    
-    for spt_num in range(n_spots_st1):  
-        if adata_bulk_init is not None:
-            #print(adata_bulk_init)
-            # note that spatial location has spt_num as an int but deconv has spt_num as a str - fixed by making a copy in evaluations
-            # since for deconv the names of cells were getting updated in evaluations 
-            # V_init = np.array(adata_bulk_init.loc[all_ctypes,spt_num]).reshape(-1,1)
-            V_init = torch.tensor(adata_bulk_init[spt_num].values,dtype=torch.float32,requires_grad=False).reshape(-1,1).to(device)
-
-        deconv_op, cell_wts = run_adam_softmax_optimization(Bscrna, X1,# October2024 - fix kernel_wt[spt_num] -> kernel_wt[:,spt_num]
-                                                                     kernel_wt[:,spt_num], 
-                                                                     ct_identity,
-                                                                     res1_init, 
-                                             V_init=V_init, 
-                                             lambda_=par_lambda,
-                                             eta1_ = par_eta1, 
-                                             max_iter_adam=max_iter_adam,
-                                     self_wt_=self_wt_,
-                                     par_lr_adam=par_lr_adam)
-        
-        deconv_df.loc[:,spt_num] = deconv_op.flatten() #.detach().cpu().numpy()
-        cell_wts_df.loc[:,spt_num] = cell_wts.flatten()
-        
-    return deconv_df, cell_wts_df # ,res1, alpha, debug_vars_list_spots
-
-
-def spadecoder_slice_wrapper(adata_st1, Bsc, ct_identity,
-                                   spa_key1='spatial',
-                  min_wt=0.0001,
-                  renorm=True,
-                  bandwidth=0.01,
-                  recompute=True,par_lambda=0.001, 
-                  par_eta1=10.0,
-                  max_iter_adam=500,
-                  n_spatial_neigh=15,nn_only=True,
-                  weight_spatial=1.0,
-                  self_wt1=1.0,
-                  ct_props=None,
-                  par_lr_adam=0.01, adata_bulk_init=None):
-    
+    # gt_align: If true, ground truth alignment is used. If False, alignment is computed using moscot
     # ensure same genes in ST, scRNA
     # Bsc: gene X cell matrix from reference 
     # ct_identity: cell X cell-type binary matrix 
     
-    genes_to_use = list(set(adata_st1.var.index).intersection(set(Bsc.index)))
-    
-    adata_st1 = adata_st1[:,genes_to_use].copy()
+    ##### genes, cells same  #####################
+    genes_to_use = list(set(adata_ip[0].var.index).intersection(set(Bsc.index)))
+    for entry in range(1,len(adata_ip)):
+        genes_to_use = set(adata_ip[entry].var.index).intersection(genes_to_use)
+    genes_to_use = list(genes_to_use)
+    genes_to_use.sort()
+
+    for entry in range(len(adata_ip)):
+        adata_ip[entry] = adata_ip[entry][:,genes_to_use].copy()
     
     Bsc = Bsc.loc[genes_to_use,:].copy()
    
@@ -206,29 +230,133 @@ def spadecoder_slice_wrapper(adata_st1, Bsc, ct_identity,
     # cell-types restricted by what's in reference
     all_ctypes = list(ct_identity.columns) # .union(set(adata_st1.obs.columns).union(set(adata_st2.obs.columns))))
 
-    if  set(adata_st1.obs.columns) != set(all_ctypes):
-        # add extra columns with 0s
-        for entry in all_ctypes:
-            if entry not in set(adata_st1.obs.columns):
-                obs =  sc.get.obs_df(adata_st1,keys=list(adata_st1.obs.columns))
-                obs[entry] = 0.0
-                adata_st1.obs = obs
-    
-    kernel_wt1 = get_gauss_kernel_wt(adata_st1,spa_key1,min_wt=min_wt,bandwidth=bandwidth,
-                                                recompute=recompute,n_spatial_neigh=n_spatial_neigh,
-                                                nn_only=nn_only,weight_spatial=weight_spatial) 
+    for entry0 in range(len(adata_ip)):
+        if  set(adata_ip[entry0].obs.columns) != set(all_ctypes):
+            # add extra columns with 0s
+            for entry in all_ctypes:
+                if entry not in set(adata_ip[entry0].obs.columns):
+                    obs =  sc.get.obs_df(adata_ip[entry0],keys=list(adata_ip[entry0].obs.columns))
+                    obs[entry] = 0.0
+                    adata_ip[entry0].obs = obs
+    ##########################################
 
-    Bscrna = torch.tensor(np.array(Bsc), dtype=torch.float32,requires_grad=False).to(device)
+    ############### calculate 3D weights ######################
+    two_sig = int(kernel3d_bw_slices/2) # make sure the maximum number of important slices are covered in 2-sigma
+    sigma = two_sig/2.0
+    num_curr_slices = len(adata_ip)
     
-    ct_identity = torch.tensor(np.array(ct_identity), dtype=torch.float32,requires_grad=False).to(device)
-    
-    deconv_st1, cell_wts = get_adam_softmax_solution_perslice(kernel_wt1, Bscrna,ct_identity,
-                                            all_ctypes, adata_st1.X, 
-                                    par_lambda=par_lambda, 
-                                    par_eta1=par_eta1, 
-                                    max_iter_adam=max_iter_adam,
-                                    self_wt_=self_wt1,# adj_wt_=adj_wt1,
-                                    ct_props=ct_props,par_lr_adam=par_lr_adam,adata_bulk_init=adata_bulk_init)
+    adj_wts = []
+    for slice_idx in range(num_curr_slices):
+        dist_from_curr = abs(slice_idx-curr_slice_idx)
+        slice_wt = gaussian_kernel_for3d(dist_from_curr, sigma)
+        #print(sigma, dist_from_curr, slice_idx,curr_slice_idx,slice_wt)
+        adj_wts.append(slice_wt)
+    # renormalize so max is at current slice
+    adj_wts = np.array(adj_wts)/np.max(adj_wts)
+    adj_wts =  torch.tensor(adj_wts, dtype=torch.float32,requires_grad=False, device=device).unsqueeze(1)
+    # print(adj_wts)
+    ############### end 3D weight calculation #######################
+
+
+    ###################### alignment #################################
+    ap = None
+    if ((not gt_align) and (len(adata_ip)>1)):
+        adata_concat = adata_ip[0].concatenate(adata_ip[1:])
+        print(adata_concat.obs['batch'].cat.categories)
+        for colname in adata_concat.obs.columns:
+            if adata_concat.obs[colname].isnull().any():
+                adata_concat.obs[colname] = adata_concat.obs[colname].fillna(0)
         
-    return deconv_st1, cell_wts # , res1_1, alpha, debug_vars1
+        ap = AlignmentProblem(adata=adata_concat)
+        ap = ap.prepare(batch_key="batch", policy="star",reference=str(curr_slice_idx))
+        ap = ap.solve()
+    ##### alignment ends ################################################
+
+    ##### 2D weights #################################################
+    kernel_wt_list = []
+    for entry in range(num_curr_slices):
+        if entry == curr_slice_idx:
+            kernel_wt1 = get_gauss_kernel_wt(adata_ip[curr_slice_idx],spa_key1,min_wt=min_wt,bandwidth=bandwidth,
+                                                        recompute=recompute,n_spatial_neigh=n_spatial_neigh,
+                                                        nn_only=nn_only,weight_spatial=weight_spatial) 
+        else:
+            if gt_align: # GT alignment, fill with 1's on diagonal
+                
+                ## TEST!!! - nbd of neighboring slice
+                # kernel_wt1 = get_gauss_kernel_wt(adata_ip[entry],spa_key1,min_wt=min_wt,bandwidth=bandwidth,
+                #                                         recompute=recompute,n_spatial_neigh=n_spatial_neigh,
+                #                                         nn_only=nn_only,weight_spatial=weight_spatial) 
+                ## ORIGINAL!!
+                kernel_wt1 = np.zeros((adata_ip[entry].shape[0],adata_ip[curr_slice_idx].shape[0]))
+                
+                
+                # print(adata_ip[entry].shape[0],adata_ip[curr_slice_idx].shape[0])
+                # np.fill_diagonal(kernel_wt1,0.75)
+                np.fill_diagonal(kernel_wt1,1.0)
+            else:
+                # run PASTE To align everything with "curr_slice_idx"
+                Palign = np.asarray(ap.solutions[(str(entry),str(curr_slice_idx))].transport_matrix) # this is of dim aligned slice x currslice 
+                # each row (i.e. sum across all columns) is scaled by number of rows i.e. 1/number of rows
+                # similarly each column (i.e. sum across all rows) is scaled by number of columns i.e. 1/number of columns
+                # we want each column (target slice) to sum to 1 
+                # i.e. we want each columns o.e. sum across all rows to be 1, so we scale by multiplying by the number of columns 
+                kernel_wt1 = Palign * Palign.shape[1] # if we did .sum(axis=0) we would get "1" i.e. each columns would sum to 1
+                # later consider only top, or setting cutoff and rescaling 
+
+        # print(entry, kernel_wt1)
+        kernel_wt_list.append(torch.tensor(kernel_wt1,dtype=torch.float32,requires_grad=False).to(device))
+    # print(kernel_wt_list)
+    ###### 2D weights end ######################################
+
+    #### make into tensors #######################
+    numspots = adata_ip[curr_slice_idx].shape[0]
+    Bscrna = torch.tensor(np.array(Bsc), dtype=torch.float32,requires_grad=False).to(device)
+    ct_identity = torch.tensor(np.array(ct_identity), dtype=torch.float32,requires_grad=False).to(device) # cells x ctypes 
+    ct_identity = ct_identity.unsqueeze(2).expand(-1, -1, numspots) # cells x ctypes x numspots 
+    X1_list = [torch.tensor(entry.X.T, dtype=torch.float32,requires_grad=False).to(device) for entry in adata_ip]
+    ##############################################################
+    
+    n_celltypes = len(all_ctypes)
+    n_spots_st1 = X1_list[curr_slice_idx].shape[1]
+    
+    # ref cells/clusters x query spots/cells matrix
+    # cell_wts_df = pd.DataFrame(np.zeros((Bscrna.shape[1],n_spots_st1)),index=range(Bscrna.shape[1]),columns=range(n_spots_st1))
+
+    ############### get initializtion of cell-type props - V_init #######################
+    if adata_bulk_init is  None:
+        if ct_props is None:
+                V_init = torch.rand((n_celltypes, n_spots_st1), dtype=torch.float32, device=device)
+                V_init /= V_init.sum(dim=0, keepdim=True)
+                # print("ctprops  None, ")
+                # print(V_init.shape)
+        else:
+                V_init = torch.tensor(ct_props[all_ctypes].values, dtype=torch.float32, device=device).reshape(-1,1).repeat(1,n_spots_st1) #.repeat(1, n_spots_st1)
+                # print("ctprops not None, ")
+                # print( V_init.shape)
+    else:
+        V_init = torch.tensor(adata_bulk_init.loc[all_ctypes,:].values,dtype=torch.float32,requires_grad=False,device=device)
+        # print("adata_bulk_init not None, ")
+        # print(V_init.shape)
+    ################ V_initialization ends ########################
+    
+    
+    ############## initialize residual #####################
+    # initlaize same as ct-identity so close to softmax is close to ctype 
+    # res1_init = torch.log(ct_identity) # this gets to infiniy but with the softmax, it's fine
+    res1_init = torch.log(ct_identity)   # Shape: (cells , celltypes x numspots)
+    #########################################################
+    
+
+    deconv_op = run_adam_softmax_optimization_ms(Bscrna, X1_list, # curr_slice_idx,
+                                                 kernel_wt_list, ct_identity, adj_wts,
+                                                 res1_init=res1_init,
+                                                 V_init=V_init,
+                                                 lambda_=par_lambda,
+                                                 eta1_=par_eta1,
+                                                 max_iter_adam=max_iter_adam,
+                                                 par_lr_adam=par_lr_adam)
+    
+    
+    deconv_op = pd.DataFrame(deconv_op, index=all_ctypes, columns=adata_ip[curr_slice_idx].obs.index)    
+    return deconv_op, ap # , cell_wts # , res1_1, alpha, debug_vars1
 

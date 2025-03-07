@@ -188,3 +188,10 @@ def get_gauss_kernel_wt(adata_spa,spatial_key='spatial',
 #     return net_kernel
 
 
+
+def gaussian_kernel_for3d(x, sigma):
+    """
+    Returns Gaussian kernel values for a given point x,
+    with standard deviation sigma and mean 0.
+    """
+    return (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * (x / sigma)**2)

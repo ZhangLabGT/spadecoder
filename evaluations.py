@@ -2,15 +2,15 @@ from .importing_modules import *
 
 
 
-def eval_deconv3(gnd_truth_ip,deconv_res_ip):
+def eval_deconv3(gnd_truth,deconv_res):
     ### evaluation of deconvolution results 
     # make sure gnd_truth and deconv_res have the same order of cell-names, even if the names differ 
     
     # input:
     # 1. ground truth -> cell by type df
     # 2. deconvolution results -> type by cell df
-    gnd_truth = gnd_truth_ip.copy()
-    deconv_res = deconv_res_ip.copy()
+    # gnd_truth = gnd_truth_ip.copy()
+    # deconv_res = deconv_res_ip.copy()
     
     gnd_truth = gnd_truth.T
     
@@ -76,3 +76,51 @@ def eval_deconv3(gnd_truth_ip,deconv_res_ip):
     # perfectly correct should give 0
     # print([rmse, ari, purity,avg_corr], correlations)
     return [orig_rmse,  ari, purity, avg_corr_pe, avg_jsd], [correlations_pe,cell_type_jsd]      # , spear_correl
+
+
+def eval_perspot(gnd_truth,deconv_res):
+  
+    gnd_truth = gnd_truth.T
+    
+    deconv_res.columns = gnd_truth.columns # keeping cell ids consistent 
+    assert set(deconv_res.index) == set(gnd_truth.index), "the ground truth and deconv results have different cell types"
+    deconv_res = deconv_res.loc[gnd_truth.index,]
+
+    # pearson corr 
+    pearson_cor = gnd_truth.corrwith(deconv_res, axis = 0, method='pearson') # if not doing rank correlation, normalization will matter 
+    # avg_corr_pe = pearson_cor.mean()
+
+
+    # dom ctype - True / False 
+    pred_dom_ct = deconv_res.idxmax()
+    gt_dom_ct = gnd_truth.idxmax()
+    is_correct_dom = (pred_dom_ct == gt_dom_ct).astype(int)
+    # is_correct_dom
+
+
+    # correlation between cell-types 
+    correlations_pe = pd.DataFrame(index=deconv_res.T.columns, columns=gnd_truth.T.columns)
+    for col1 in deconv_res.T.columns:
+        for col2 in gnd_truth.T.columns:
+            # gives nan when all 0's due to cell type not present in ref or query
+            # correlations_sp.at[col1, col2] = deconv_res.T[col1].corr(gnd_truth.T[col2], method='spearman')
+            correlations_pe.at[col1, col2] = deconv_res.T[col1].corr(gnd_truth.T[col2], method='pearson')
+    # correlations_pe
+
+
+
+    # euclidean dist 
+    gnd_truth_norm = np.array(gnd_truth/gnd_truth.sum())    
+    deconv_res = np.array(deconv_res/deconv_res.sum())
+    # orig_rmse = np.sqrt(((gnd_truth_norm - deconv_res) ** 2).sum())
+    cell_rmse = np.sqrt(((gnd_truth_norm - deconv_res) ** 2).sum(axis=0))
+
+
+
+    per_cell_metrics = pd.DataFrame(index=gnd_truth.columns,columns=['pearson_cor','correct_dom','cell_rmse'])
+
+    per_cell_metrics['pearson_cor'] = pearson_cor
+    per_cell_metrics['correct_dom'] = is_correct_dom
+    per_cell_metrics['cell_rmse'] = cell_rmse
+
+    return per_cell_metrics, correlations_pe

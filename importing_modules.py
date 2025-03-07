@@ -36,9 +36,9 @@ import os
 # import warnings
 
 # import moscot as mt
-# from moscot import datasets
-# from moscot.problems.space import MappingProblem
-# from moscot.problems.space import AlignmentProblem
+from moscot import datasets
+from moscot.problems.space import MappingProblem
+from moscot.problems.space import AlignmentProblem
 
 import seaborn as sns
 import pickle
