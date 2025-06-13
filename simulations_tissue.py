@@ -474,7 +474,12 @@ def cell_swap_for_allsims_tissue_final(adata_sc, adata_spot,
         cells_in_nbd = list(adata_sc[adata_sc.obs[spot_key].isin(list(spa_NNconn[spa_NNconn[spot_idx]==1][spot_idx].index))].obs.index)
         # pick random cells & shuffle spot label 
         rng = np.random.default_rng(seed=swap_seed)
-        cells_to_swap = rng.choice(cells_in_nbd, nswaps_nbd, replace=False)
+
+        if nswaps_nbd > len(cells_in_nbd):
+            nswaps_nbd_curr = len(cells_in_nbd)
+        else:
+            nswaps_nbd_curr = nswaps_nbd
+        cells_to_swap = rng.choice(cells_in_nbd, nswaps_nbd_curr, replace=False)
         selected_spots = spot_info[cells_to_swap]
         swap_seed = swap_seed + 1
         

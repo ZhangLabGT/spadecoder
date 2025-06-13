@@ -28,6 +28,8 @@ def eval_deconv3(gnd_truth,deconv_res):
     assert set(deconv_res.index) == set(gnd_truth.index), "the ground truth and deconv results have different cell types"
     deconv_res = deconv_res.loc[gnd_truth.index,]
     
+    # deconv_res is ctype by cells 
+    
     # spearmann_cor = gnd_truth.corrwith(deconv_res, axis = 0, method='spearman') # if not doing rank correlation, normalization will matter 
     # avg_corr_sp = spearmann_cor.mean()
 
@@ -49,16 +51,18 @@ def eval_deconv3(gnd_truth,deconv_res):
     
     deconv_res = np.array(deconv_res/deconv_res.sum())
     
-    orig_rmse = np.sqrt(((gnd_truth_norm - deconv_res) ** 2).sum())
+    # RMSE of each spot, averaged over spots
+    orig_rmse = np.sqrt(np.mean((gnd_truth_norm - deconv_res)**2, axis=0)).mean() 
+    # np.sqrt(((gnd_truth_norm - deconv_res) ** 2).sum())
     # add 0.000001 to denom to prevent divide by 0
     # new_rmse = np.sqrt(((((gnd_truth_norm - deconv_res) ** 2).sum(axis=0)/gnd_truth_norm.sum(axis=0)).sum())/gnd_truth_norm.shape[0])
     
-    ari = adjusted_rand_score(gt_dom_ct,pred_dom_ct)
+    # ari = adjusted_rand_score(gt_dom_ct,pred_dom_ct)
     
     
-    contingency_matrix = metrics.cluster.contingency_matrix(gt_dom_ct,pred_dom_ct)
-    # return purity
-    purity =  np.sum(np.amax(contingency_matrix, axis=0)) / np.sum(contingency_matrix) 
+    # contingency_matrix = metrics.cluster.contingency_matrix(gt_dom_ct,pred_dom_ct)
+    # # return purity
+    # purity =  np.sum(np.amax(contingency_matrix, axis=0)) / np.sum(contingency_matrix) 
     
     # code JSD
     #gnd_truth_norm_prop = gnd_truth_norm.div(gnd_truth_norm.sum(axis=1),axis='rows') # sum to 1 per-cell type across all spots 
@@ -75,7 +79,7 @@ def eval_deconv3(gnd_truth,deconv_res):
     avg_jsd = cell_type_jsd.mean() # higher is worse because more deviation from actual and true distribution
     # perfectly correct should give 0
     # print([rmse, ari, purity,avg_corr], correlations)
-    return [orig_rmse,  ari, purity, avg_corr_pe, avg_jsd], [correlations_pe,cell_type_jsd]      # , spear_correl
+    return [orig_rmse,   avg_corr_pe, avg_jsd], [correlations_pe,cell_type_jsd]      # , spear_correl
 
 
 def eval_perspot(gnd_truth,deconv_res):

@@ -35,10 +35,11 @@ from scipy.stats import entropy
 import os
 # import warnings
 
-# import moscot as mt
+import moscot as mt
 from moscot import datasets
 from moscot.problems.space import MappingProblem
 from moscot.problems.space import AlignmentProblem
+from moscot.problems.generic import FGWProblem
 
 import seaborn as sns
 import pickle
@@ -64,7 +65,17 @@ from matplotlib.patches import Circle, Wedge, Rectangle
 
 import torch
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
-torch.use_deterministic_algorithms(True)
+import time 
+
+# torch.use_deterministic_algorithms(True)
 
 
+import scSLAT
+from scSLAT.model import run_SLAT_multi
+from scSLAT.viz import build_3D
+from scSLAT.model import Cal_Spatial_Net, load_anndatas, run_SLAT, spatial_match
+from scSLAT.viz import match_3D_multi, hist, Sankey
+
+from sparsemax import Sparsemax
