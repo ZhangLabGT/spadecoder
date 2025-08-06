@@ -521,12 +521,14 @@ def get_align_slat(slice_order, slice_list):
 
 
 
-def get_align_moscot(slice_order, slice_list, min_wt=0.0001):
+def get_align_moscot(slice_order, slice_list, fixnans=True, min_wt=0.0001):
     adata_concat = slice_list[0].concatenate(slice_list[1:])
-    for colname in adata_concat.obs.columns:
-        if adata_concat.obs[colname].isnull().any():
-            adata_concat.obs[colname] = adata_concat.obs[colname].fillna(0)
-            
+    # print(adata_concat.obs['batch'].value_counts())
+    if fixnans:
+        for colname in adata_concat.obs.columns:
+            if adata_concat.obs[colname].isnull().any():
+                adata_concat.obs[colname] = adata_concat.obs[colname].fillna(0)
+                
     Palign = {} 
     Palign_orig = {}
     for currslice_idx in range(len(slice_order)):   
@@ -1129,21 +1131,23 @@ def get_variabletranscr_bw(slice_order, slice_list,var_nspaneigh_transcr, mode,
         if mode == 'multislice':
             for other_slice_idx in range(len(slice_order)): # for 3D kernel we need to compute the geary metric across slices
                 other_slice = slice_order[other_slice_idx]
-                if other_slice != currslice_idx:
-                    print(other_slice, currslice_idx)
-                    adata_other = slice_list[other_slice_idx]
-                    Xarr_other = torch.tensor(adata_other.X).to(device)
-                    spacoord_other = torch.tensor(adata_other.obsm['spatial'])
-                    # get the 3D distance 
-                    
-                    kernel_all[ str(other_slice) + '_' + str(currslice_idx)  ], best_localC,  neigh_arr, best_pvals =  get_vartranscrbw_spatial_nbd(Xarr_other, Xarr, spacoord_other, spacoord, var_nspaneigh_transcr,fixed_bw, min_wt,  Dspa =  torch.from_numpy(Palign_dis[(str(other_slice),str(currslice_idx))]).to(device),method=method, gt_align=gt_align) #, DSpaConn=DSpaConn)
+                if other_slice_idx not in [currslice-1, currslice+1]: # src must be 1 above or below tgt 
+                    continue
+                
+                print(other_slice, currslice_idx)
+                adata_other = slice_list[other_slice_idx]
+                Xarr_other = torch.tensor(adata_other.X).to(device)
+                spacoord_other = torch.tensor(adata_other.obsm['spatial'])
+                # get the 3D distance 
+                
+                kernel_all[ str(other_slice) + '_' + str(currslice_idx)  ], best_localC,  neigh_arr, best_pvals =  get_vartranscrbw_spatial_nbd(Xarr_other, Xarr, spacoord_other, spacoord, var_nspaneigh_transcr,fixed_bw, min_wt,  Dspa =  torch.from_numpy(Palign_dis[(str(other_slice),str(currslice_idx))]).to(device),method=method, gt_align=gt_align) #, DSpaConn=DSpaConn)
 
-                    geary_metric[str(other_slice) + '_' + str(currslice_idx)] = pd.DataFrame({
-                        'gearyc': best_localC,
-                        #'bw':      bw_arr,
-                        'neigh':   neigh_arr,
-                        'is_sig':  best_pvals
-                    },index=list(range(adata.shape[0])))
+                geary_metric[str(other_slice) + '_' + str(currslice_idx)] = pd.DataFrame({
+                    'gearyc': best_localC,
+                    #'bw':      bw_arr,
+                    'neigh':   neigh_arr,
+                    'is_sig':  best_pvals
+                },index=list(range(adata.shape[0])))
     return kernel_all, geary_metric
 
 

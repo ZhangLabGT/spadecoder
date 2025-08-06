@@ -1,5 +1,6 @@
 from .importing_modules import *
 from .processing_for_model import *
+from .post_processing import *
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -321,7 +322,7 @@ def spadecoder_slice_wrapper_ms(adata_ip, # this is a list
 
     ###############################  calculate 3D weights ###########################################
     if adj_wts is None:
-        if len(num_curr_slices) > 0: # many slices 
+        if num_curr_slices > 1: # many slices 
             two_sig = int(kernel3d_bw_slices/2) # make sure the maximum number of important slices are covered in 2-sigma
             sigma = two_sig/2.0
             
@@ -335,8 +336,11 @@ def spadecoder_slice_wrapper_ms(adata_ip, # this is a list
             adj_wts = np.array(adj_wts)/np.sum(adj_wts) # previously max
             # renormalize so max is at current slice
         else:
-            adj_wts = np.array(1.0)
+            adj_wts = np.array([1.0])
     
+    # print(adj_wts)
+    # print(kernel_wt_list)
+
     adj_wts =  torch.tensor(adj_wts, dtype=torch.float32,requires_grad=False, device=device).unsqueeze(1)
     # print(adj_wts)
     ############### end 3D weight calculation #######################

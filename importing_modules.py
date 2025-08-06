@@ -7,7 +7,6 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 import math
 import numpy as np
 import scipy as sp
-import anndata
 from scipy.stats import multivariate_normal as mvnpy
 import random 
 
@@ -56,6 +55,7 @@ warnings.simplefilter("ignore", UserWarning)
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Wedge, Rectangle
+from matplotlib import colors
 # plt.rcParams['figure.figsize']=(8,8) #rescale figures
 # # sc.settings.verbosity = 3
 # # sc.logging.print_versions()
