@@ -12,7 +12,7 @@ def morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=100
     celltype_props_diff = celltype_props - mean_celltype_props
 
 
-    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device)
+    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device, dtype=torch.float32)
 
     # print(neigh_conn.sum(axis=0))
     neigh_conn = neigh_conn.fill_diagonal_(1)
@@ -68,7 +68,7 @@ def local_morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_
     celltype_props_diff = celltype_props - mean_celltype_props
 
 
-    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device)
+    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device, dtype=torch.float32)
 
     # print(neigh_conn.sum(axis=0))
     neigh_conn = neigh_conn.fill_diagonal_(1)
@@ -103,6 +103,9 @@ def local_morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_
 
     celltype_props_diff_sq = (celltype_props_diff*celltype_props_diff).unsqueeze(0) # (S, C) -> (1, S, C)
 
+    W_perm = neigh_conn.T[torch.arange(nspots_src).unsqueeze(1), leave_one_out]  # (S, S-1)
+    W_perm = W_perm.unsqueeze(0).unsqueeze(-1)  # (1, S, S-1, 1)
+    
     for start in range(0, nsim, batch_sz):
         end = min(start + batch_sz, nsim)
         batch_n = end - start
@@ -119,8 +122,7 @@ def local_morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_
 
         permuted_ct = torch.gather(celltype_props_diff_expand, dim=2, index=permuted_spot_ids_expand)  # (batch_n, S, S-1, C)
 
-        W_perm = neigh_conn[torch.arange(nspots_src).unsqueeze(1), leave_one_out]  # (S, S-1)
-        W_perm = W_perm.unsqueeze(0).unsqueeze(-1)  # (1, S, S-1, 1)
+        
         # Weighted sum over permuted neighbors: (batch_n, S, C)
         permuted_ct_weighted_sum = (permuted_ct * W_perm).sum(dim=2)
         # Original z_i: (1, S, C)
@@ -152,18 +154,26 @@ def sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=1000, si
     celltype_props_diff = celltype_props - mean_celltype_props
 
 
-    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device)
+    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device,dtype=torch.float32)
 
     # print(neigh_conn.sum(axis=0))
-    neigh_conn = neigh_conn.fill_diagonal_(1)
+    neigh_conn = neigh_conn.fill_diagonal_(1.0)
 
     # global sci
     nspots_src = curr_slices.shape[0]
     n_celltypes = len(celltypes)
-    prod_neigh_prop = ((celltype_props_diff.unsqueeze(1).unsqueeze(3) * celltype_props_diff.unsqueeze(0).unsqueeze(2)) * neigh_conn.unsqueeze(2).unsqueeze(3))
-    sci_num = prod_neigh_prop.sum(axis=0).sum(axis=0)
-    denom_tmp = ((prod_neigh_prop.diagonal(dim1=0,dim2=1)).diagonal(dim1=0, dim2=1)).sum(axis=0).sqrt().unsqueeze(0)
-    denom = denom_tmp * denom_tmp.T
+
+
+    # prod_neigh_prop = ((celltype_props_diff.unsqueeze(1).unsqueeze(3) * celltype_props_diff.unsqueeze(0).unsqueeze(2)) * neigh_conn.unsqueeze(2).unsqueeze(3))
+    # sci_num = prod_neigh_prop.sum(axis=0).sum(axis=0)
+    # T = celltype_props_diff.T  # K x S
+    neigh_T = torch.matmul(celltype_props_diff.T, neigh_conn)  # K x S
+    sci_num = torch.matmul(neigh_T, celltype_props_diff)  # K x K
+
+    # denom_tmp = ((prod_neigh_prop.diagonal(dim1=0,dim2=1)).diagonal(dim1=0, dim2=1)).sum(axis=0).sqrt().unsqueeze(0)
+    # denom = denom_tmp * denom_tmp.T
+    diag_terms = (celltype_props_diff * celltype_props_diff).sum(axis=0)  # K
+    denom = torch.sqrt(torch.ger(diag_terms, diag_terms))  # K x K
     numerator_norm_const = nspots_src / (2 * neigh_conn.sum())
     mult_factor = numerator_norm_const / denom # C x C 
     sci_global = sci_num * mult_factor # C x C 
@@ -182,9 +192,14 @@ def sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=1000, si
         perm_ids     = rand_vals.argsort(dim=1) 
         
         celltype_props_diff_perm = celltype_props_diff[perm_ids]
+
+        permuted_T = celltype_props_diff_perm.transpose(1, 2) # P K S 
+        # print(permuted_T.dtype, neigh_conn.dtype)
+        neigh_prod = torch.matmul(permuted_T, neigh_conn) # sum across neigh -> P K S 
+        sci_num_perm = torch.matmul(neigh_prod, celltype_props_diff_perm) # P K S x P S K -> P K K  
         
-        prod_neigh_prop_perm = ((celltype_props_diff_perm.unsqueeze(2).unsqueeze(4) * celltype_props_diff_perm.unsqueeze(1).unsqueeze(3)) *  neigh_conn.unsqueeze(2).unsqueeze(3).unsqueeze(0))
-        sci_num_perm = prod_neigh_prop_perm.sum(axis=1).sum(axis=1) # P x C x C 
+        # prod_neigh_prop_perm = ((celltype_props_diff_perm.unsqueeze(2).unsqueeze(4) * celltype_props_diff_perm.unsqueeze(1).unsqueeze(3)) *  neigh_conn.unsqueeze(2).unsqueeze(3).unsqueeze(0))
+        # sci_num_perm = prod_neigh_prop_perm.sum(axis=1).sum(axis=1) # P x C x C 
 
         sci_global_perm = sci_num_perm * mult_factor.unsqueeze(0)
 
@@ -206,22 +221,26 @@ def local_sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=10
     celltype_props_diff = celltype_props - mean_celltype_props
 
 
-    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device)
+    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device, dtype=torch.float32)
 
     # print(neigh_conn.sum(axis=0))
     neigh_conn = neigh_conn.fill_diagonal_(1)
 
     nspots_src, n_celltypes = celltype_props_diff.shape
 
+    weighted_neigh = torch.matmul(celltype_props_diff.T, neigh_conn) # C x S 
+    sci_local_num = weighted_neigh.T.unsqueeze(1) * celltype_props_diff.unsqueeze(2) # S x C x C 
+    # prod_neigh_prop = ((celltype_props_diff.unsqueeze(1).unsqueeze(3) * celltype_props_diff.unsqueeze(0).unsqueeze(2)) * neigh_conn.unsqueeze(2).unsqueeze(3))
+    # sci_local_num = prod_neigh_prop.sum(axis=0)
+    diag_terms = (celltype_props_diff * celltype_props_diff).sum(axis=0)  # K
+    denom = torch.sqrt(torch.ger(diag_terms, diag_terms))  # K x K
 
-    prod_neigh_prop = ((celltype_props_diff.unsqueeze(1).unsqueeze(3) * celltype_props_diff.unsqueeze(0).unsqueeze(2)) * neigh_conn.unsqueeze(2).unsqueeze(3))
-    sci_local_num = prod_neigh_prop.sum(axis=0)
-    denom_tmp = ((prod_neigh_prop.diagonal(dim1=0,dim2=1)).diagonal(dim1=0, dim2=1)).sum(axis=0).sqrt().unsqueeze(0)
-    denom = denom_tmp * denom_tmp.T
+    #denom_tmp = ((prod_neigh_prop.diagonal(dim1=0,dim2=1)).diagonal(dim1=0, dim2=1)).sum(axis=0).sqrt().unsqueeze(0)
+    #denom = denom_tmp * denom_tmp.T
     numerator_norm_const = nspots_src / neigh_conn.sum()
     mult_factor = (numerator_norm_const / denom).unsqueeze(0) # C x C 
     sci_local = sci_local_num * mult_factor
-    mult_factor = mult_factor.unsqueeze(0)
+    mult_factor = mult_factor.unsqueeze(0) # 1 x S X C X C 
 
 
     # hypothesis testing 
@@ -242,6 +261,8 @@ def local_sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=10
 
     celltype_props_diff_sq = (celltype_props_diff.unsqueeze(2) *celltype_props_diff.unsqueeze(1)).unsqueeze(0) # S, C, 1 * S, 1, C -> S x C x C -> 1 X S X C X C  
 
+    W_perm = neigh_conn.T[torch.arange(nspots_src).unsqueeze(1), leave_one_out].unsqueeze(0).unsqueeze(-1) # 1 X S X S -1 X 1
+
     for start in range(0, nsim, batch_sz):
         end = min(start + batch_sz, nsim)
         batch_n = end - start
@@ -251,15 +272,14 @@ def local_sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=10
 
         permuted_spot_ids = torch.gather(leave_one_out.unsqueeze(0).expand(batch_n, -1, -1), dim=2, index=perm_ids)  # P, S, S-1
 
-        
         celltype_props_diff_expand = celltype_props_diff.unsqueeze(0).unsqueeze(1).expand(batch_n,nspots_src,nspots_src,-1) # [P, S, S, C]
 
         permuted_spot_ids_expand = permuted_spot_ids.unsqueeze(3).expand(-1, -1, -1, n_celltypes) # P, S, S-1, C
 
         permuted_ct = torch.gather(celltype_props_diff_expand, dim=2, index=permuted_spot_ids_expand)  # (batch_n, S, S-1, C)
 
-        W_perm = neigh_conn[torch.arange(nspots_src).unsqueeze(1), leave_one_out]  # (S, S-1)
-        W_perm = W_perm.unsqueeze(0).unsqueeze(-1)  # (1, S, S-1, 1)
+        # W_perm = neigh_conn[torch.arange(nspots_src).unsqueeze(1), leave_one_out]  # (S, S-1)
+        # W_perm = W_perm.unsqueeze(0).unsqueeze(-1)  # (1, S, S-1, 1)
         
         # Weighted sum over permuted neighbors: (P, S, C)
         permuted_ct_weighted_sum = (permuted_ct * W_perm).sum(dim=2)
