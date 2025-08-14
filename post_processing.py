@@ -12,7 +12,7 @@ def morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=100
     celltype_props_diff = celltype_props - mean_celltype_props
 
 
-    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device, dtype=torch.float32)
+    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'], device=device, dtype=torch.float32)
 
     # print(neigh_conn.sum(axis=0))
     neigh_conn = neigh_conn.fill_diagonal_(1)
@@ -31,8 +31,8 @@ def morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=100
 
 
 
+    counts_both = torch.zeros(len(celltypes),device=device)
     counts = torch.zeros(len(celltypes),device=device)
-
 
 
     for start in range(0, nsim, batch_sz):
@@ -48,12 +48,15 @@ def morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=100
 
         moransI_perm = (morans_tmp_perm.sum(axis=3).sum(axis=2) / morans_tmp_perm.diagonal(dim1=2, dim2=3).sum(axis=2))*moran_norm_const
 
+        counts_both = counts_both + (moransI_perm.abs() > moransI.abs()).sum(axis=0) # /moransI_perm.shape[0]
         counts = counts + (moransI_perm > moransI).sum(axis=0) # /moransI_perm.shape[0]
 
     counts = counts/nsim
+    counts_both = counts_both/nsim
+    sig_celltypes_both = np.array(celltypes)[(counts_both.detach().cpu() < sig_thresh).nonzero(as_tuple=True)[0]]
     sig_celltypes = np.array(celltypes)[(counts.detach().cpu() < sig_thresh).nonzero(as_tuple=True)[0]]
 
-    return moransI.detach().cpu(), sig_celltypes
+    return moransI.detach().cpu(), counts.detach().cpu(), counts_both.detach().cpu(), sig_celltypes, sig_celltypes_both
 
 
 
@@ -68,7 +71,7 @@ def local_morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_
     celltype_props_diff = celltype_props - mean_celltype_props
 
 
-    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device, dtype=torch.float32)
+    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'], device=device, dtype=torch.float32)
 
     # print(neigh_conn.sum(axis=0))
     neigh_conn = neigh_conn.fill_diagonal_(1)
@@ -85,7 +88,7 @@ def local_morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_
     gen = torch.Generator(device=device).manual_seed(seed)
 
     counts = torch.zeros((nspots_src,n_celltypes),device=device)
-
+    counts_both = torch.zeros((nspots_src,n_celltypes),device=device)
 
     # nsim_total = nsim * nspots_src
     # batch_sz_total = batch_sz * nspots_src
@@ -131,15 +134,18 @@ def local_morans_I_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_
         local_moran_perm = (celltype_props_diff_i * permuted_ct_weighted_sum) + celltype_props_diff_sq
         local_moran_perm = local_moran_perm*morans_denom_loop
 
+        counts_both = counts_both + (local_moran_perm.abs() > local_moransI.T.abs().unsqueeze(0)).sum(axis=0) # /moransI_perm.shape[0]
         counts = counts + (local_moran_perm > local_moransI.T.unsqueeze(0)).sum(axis=0) # /moransI_perm.shape[0]
 
     counts = counts/nsim
+    counts_both = counts_both/nsim
 
     signed_local_morans = local_moransI.T * torch.sign(celltype_props_diff) 
     
     is_sig = (counts < sig_thresh).int()
+    is_sig_both = (counts_both < sig_thresh).int()
     
-    return local_moransI.T.detach().cpu(), signed_local_morans.detach().cpu(), is_sig.detach().cpu(), counts.detach().cpu()
+    return local_moransI.T.detach().cpu(), signed_local_morans.detach().cpu(), is_sig.detach().cpu(), is_sig_both.detach().cpu(), counts.detach().cpu(), counts_both.detach().cpu()
     # sig_celltypes = np.array(celltypes)[(counts < sig_thresh).nonzero(as_tuple=True)[0]]
 
 
@@ -154,7 +160,7 @@ def sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=1000, si
     celltype_props_diff = celltype_props - mean_celltype_props
 
 
-    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device,dtype=torch.float32)
+    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'], device=device,dtype=torch.float32)
 
     # print(neigh_conn.sum(axis=0))
     neigh_conn = neigh_conn.fill_diagonal_(1.0)
@@ -183,6 +189,7 @@ def sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=1000, si
     gen = torch.Generator(device=device).manual_seed(seed)
 
     counts = torch.zeros(n_celltypes,n_celltypes, device=device)
+    counts_both = torch.zeros(n_celltypes,n_celltypes, device=device)
 
     for start in range(0, nsim, batch_sz):
         end = min(start + batch_sz, nsim)
@@ -203,12 +210,15 @@ def sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=1000, si
 
         sci_global_perm = sci_num_perm * mult_factor.unsqueeze(0)
 
-        counts = counts + (sci_global_perm.abs() > sci_global.abs()).sum(axis=0) # /moransI_perm.shape[0]
+        counts_both = counts_both + (sci_global_perm.abs() > sci_global.abs()).sum(axis=0) # /moransI_perm.shape[0]
+        counts = counts + (sci_global_perm > sci_global).sum(axis=0) # /moransI_perm.shape[0]
 
     counts = counts/nsim
+    counts_both = counts_both/nsim
+    sig_celltype_combos_both  = pd.DataFrame((counts_both < sig_thresh).int().detach().cpu().numpy(), index=celltypes, columns = celltypes)
     sig_celltype_combos  = pd.DataFrame((counts < sig_thresh).int().detach().cpu().numpy(), index=celltypes, columns = celltypes)
-    
-    return sci_global.detach().cpu(), counts.detach().cpu(), sig_celltype_combos
+    # here  C C -> current spot celltype is at dim 1 (not 0)
+    return sci_global.detach().cpu(), counts.detach().cpu(), counts_both.detach().cpu(), sig_celltype_combos, sig_celltype_combos_both
 
 
 
@@ -221,7 +231,7 @@ def local_sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=10
     celltype_props_diff = celltype_props - mean_celltype_props
 
 
-    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'].toarray(), device=device, dtype=torch.float32)
+    neigh_conn = torch.as_tensor(curr_slices.obsp['spatial_connectivities'], device=device, dtype=torch.float32)
 
     # print(neigh_conn.sum(axis=0))
     neigh_conn = neigh_conn.fill_diagonal_(1)
@@ -247,6 +257,7 @@ def local_sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=10
     gen = torch.Generator(device=device).manual_seed(seed)
 
     counts = torch.zeros((nspots_src,n_celltypes,n_celltypes),device=device)
+    counts_both = torch.zeros((nspots_src,n_celltypes,n_celltypes),device=device)
 
     full = torch.arange(nspots_src)           # shape (n,)
     grid = full.repeat(nspots_src, 1)                        # shape (n, n)
@@ -288,10 +299,14 @@ def local_sci_permutation(curr_slices,celltypes,  seed=0, nsim=1000, batch_sz=10
 
         local_sci_perm = local_sci_tmp * mult_factor
 
-        counts = counts + (local_sci_perm.abs() > sci_local.abs().unsqueeze(0)).sum(axis=0) # /moransI_perm.shape[0]
+        counts_both = counts_both + (local_sci_perm.abs() > sci_local.abs().unsqueeze(0)).sum(axis=0) # /moransI_perm.shape[0]
+        counts = counts + (local_sci_perm > sci_local.unsqueeze(0)).sum(axis=0)
 
     counts = counts/nsim
+    counts_both = counts_both/nsim
 
     is_sig = (counts < sig_thresh).int()
+    is_sig_both = (counts_both < sig_thresh).int()
 
-    return sci_local.detach().cpu(),  is_sig.detach().cpu(), counts.detach().cpu()
+    # here S C C -> current spot celltype is at dim 1 (not 0 or 2)
+    return sci_local.detach().cpu(),  is_sig.detach().cpu(), is_sig_both.detach().cpu(), counts.detach().cpu(), counts_both.detach().cpu()
