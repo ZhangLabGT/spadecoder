@@ -72,10 +72,10 @@ import time
 # torch.use_deterministic_algorithms(True)
 
 
-import scSLAT
-from scSLAT.model import run_SLAT_multi
-from scSLAT.viz import build_3D
-from scSLAT.model import Cal_Spatial_Net, load_anndatas, run_SLAT, spatial_match
-from scSLAT.viz import match_3D_multi, hist, Sankey
+# import scSLAT
+# from scSLAT.model import run_SLAT_multi
+# from scSLAT.viz import build_3D
+# from scSLAT.model import Cal_Spatial_Net, load_anndatas, run_SLAT, spatial_match
+# from scSLAT.viz import match_3D_multi, hist, Sankey
 
-from sparsemax import Sparsemax
+# from sparsemax import Sparsemax

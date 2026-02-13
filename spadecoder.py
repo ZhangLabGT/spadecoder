@@ -17,7 +17,7 @@ def solve_alignment(adata_sp, reference=None, policy='star'):
 ############################################################################
 
 
-# optional to check convergence
+
 
 
 def compute_cost_function_ms(V, res1, alpha, tissue_expr, # X1 is a list of slices 
@@ -35,7 +35,7 @@ def compute_cost_function_ms(V, res1, alpha, tissue_expr, # X1 is a list of slic
     # print("res1_softmax")
     # print(res1_softmax.shape)
     # print("cells x ctypes x spots")
-    # why are we applying softmax to columns of res 1 ? -> ct_identity is column normalized i.e. each col sums to 1 so it's like "averaging"
+    # why are we applying softmax to columns of res 1 ? -> ct_identity is column normalized i.e. each col sums to 1 
     # hence since we're keeping res1 close to ct_identity, we need to column normalize this too 
     
     ####################### tensorize bv_prod_X1_main #################################
@@ -82,7 +82,7 @@ def compute_cost_function_ms(V, res1, alpha, tissue_expr, # X1 is a list of slic
     # adj_wt_ is slices x 1 
     # alpha is 1 x 1 x 1 x numspots 
     # term 1 should be of length "spots"
-    # previously first one was "sum" instead of "mean"
+    
     term1 = 0.5* (adj_wt_ * (tissue_kernel * ((tissue_expr - torch.clamp(alpha, min = 1e-4) * bv_prod_X1_main).pow(2).mean(dim=1))).sum(dim=1)).sum(dim=0)
     # print()
     # print("term1")
@@ -90,7 +90,7 @@ def compute_cost_function_ms(V, res1, alpha, tissue_expr, # X1 is a list of slic
     # print("numspots")
     # V = ctypes x spots 
     # V should be of length spots 
-    l2_term = 0.5 *  lambda_ * (V.pow(2).mean(dim=0)) # previously sum
+    l2_term = 0.5 *  lambda_ * (V.pow(2).mean(dim=0)) 
     # print("l2_term")
     # print(l2_term.shape)
     # print("numspots")
@@ -360,12 +360,7 @@ def spadecoder_slice_wrapper_ms(adata_ip, # this is a list
                     # kernel_wt1 = np.zeros((adata_ip[curr_slice_idx].shape[0],adata_ip[curr_slice_idx].shape[0]))
                     # np.fill_diagonal(kernel_wt1, weight_spatial) 
 
-                    #### DEBUGGING ONLY, REMOVE
-                    # set 5 weights to 1 
-                    # renormalize 
-                    # kernel_wt1 = (kernel_wt1 > 0).astype(int)
-                    # print(kernel_wt1.sum(axis=0).max(),kernel_wt1.sum(axis=0).min())
-                    # kernel_wt1 = (kernel_wt1/kernel_wt1.sum(axis=0))
+                   
                 else:
                     kernel_wt1 = kernel_ip.copy()
                 # print((kernel_wt1 > 0).astype(int).sum(axis=0)) # check number of neighbors 

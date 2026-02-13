@@ -121,14 +121,7 @@ def get_intrasample_spatial_dist(adata_spatial, spatial_key='spatial',recompute=
     
     spadist = squareform(pdist(adata_spatial.obsm[spatial_key])) # distance (spatial) between every pari of cells
 
-    # october 2024 debug update
-    # print(np.allclose(spadist, spadist.T)) # check if symmetric
-    # print(spa_NNconn.sum(axis=0)) # sums to k (for k-NN) 
-    # print(spa_NNconn.sum(axis=1)) # does not sum to k
 
-    # differences from cespgrn
-    # 1. didnt make k-NN symmetric (that seems odd )
-    # 2. didn't calculate and use shortest path distances but directly used only the k-NN 
     return spadist, spa_NNconn
  
 # same slice wt
