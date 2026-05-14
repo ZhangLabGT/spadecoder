@@ -2,7 +2,7 @@ import sys
 package_path = "/localscratch/mlobo6/spadecoder/datasets/"
 if package_path not in sys.path:
     sys.path.append(package_path)
-from spadecoder import *
+from code.spadecoder import *
 
 ## visualize spots + pie plots of results 
 

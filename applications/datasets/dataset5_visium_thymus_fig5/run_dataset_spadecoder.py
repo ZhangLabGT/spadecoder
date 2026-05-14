@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 import sys
-package_path = "/localscratch/mlobo6/spadecoder/datasets/"
+package_path = "/localscratch/mlobo6/spadecoder/datasets"
 if package_path not in sys.path:
     sys.path.append(package_path)
-from spadecoder import *
+from spadecoder.code import *
 
 
 result_metric = ['orig_rmse',   'avg_corr_pe','avg_jsd']
