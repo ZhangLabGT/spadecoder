@@ -19,6 +19,7 @@ SpaDecoder uses:
 10. seaborn==0.13.2
 11. torch==2.3.1+cu121 - Make sure the torch version installed is compatible with your GPU 
 
+Installation instructions: We advise setting up a new conda environment with the aforementioned packages. Installation time is a few minutes on a normal desktop computer. 
 
 This repo is organized as follows: 
 1. code/
@@ -35,8 +36,9 @@ This repo is organized as follows:
 
 ### Example Run
 example/ contains example code used in Figure 5:  
-1. example/data contains the normalized scRNAseq and Visium ST counts - please download from https://gtvault-my.sharepoint.com/:f:/g/personal/mlobo6_gatech_edu/IgCP2HjXqpQ9Q5e6Av7__llbAbNsV6R1jy2oAgi8dF8nGbk?e=MScJLW
+1. example/data contains the normalized scRNAseq and Visium ST counts and expected output - please download from https://gtvault-my.sharepoint.com/:f:/g/personal/mlobo6_gatech_edu/IgCP2HjXqpQ9Q5e6Av7__llbAbNsV6R1jy2oAgi8dF8nGbk?e=MScJLW
 2. example/code/run_dataset_spadecoder.py contains code for running SpaDecoder on this data.
+The runtime from start to finish (including preprocessing) is approximately 35 minutes for all 4 ST Visium slices.
 
 #### Citation 
 If you find SpaDecoder helpful, kindly cite 
