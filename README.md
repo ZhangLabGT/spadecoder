@@ -39,7 +39,7 @@ example/ contains example code used in Figure 5:
 1. example/data contains the normalized scRNAseq and Visium ST counts and expected output - please download from https://gtvault-my.sharepoint.com/:f:/g/personal/mlobo6_gatech_edu/IgCP2HjXqpQ9Q5e6Av7__llbAbNsV6R1jy2oAgi8dF8nGbk?e=MScJLW
 2. example/code/run_dataset_spadecoder.py contains code for running SpaDecoder on this data.
 
-The runtime from start to finish (including preprocessing) is approximately 35 minutes for all 4 ST Visium slices.
+The runtime from start to finish (including preprocessing) is approximately 35 minutes for all 4 ST Visium slices on a single A40 GPU.
 
 #### Citation 
 If you find SpaDecoder helpful, kindly cite 
